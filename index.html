@@ -128,6 +128,34 @@
   .error-msg.show{
     display:block;
   }
+
+  /* أزرار التحكم في الفيديو */
+  .video-controls{
+    display:flex;
+    gap:10px;
+    margin-top:10px;
+    justify-content:center;
+  }
+  .video-controls button{
+    background:var(--panel);
+    border:1px solid var(--line);
+    color:var(--text);
+    padding:10px 20px;
+    border-radius:8px;
+    cursor:pointer;
+    font-size:14px;
+    transition:background .2s;
+  }
+  .video-controls button:hover{
+    background:var(--line);
+  }
+  .video-controls button.fullscreen{
+    background:var(--accent);
+    border-color:var(--accent);
+  }
+  .video-controls button.fullscreen:hover{
+    background:#4a90fa;
+  }
 </style>
 </head>
 <body>
@@ -138,14 +166,21 @@
     <span id="connText">بيتصل بالسيرفر...</span>
   </div>
 
-  <div class="frame">
-    <video id="video" playsinline webkit-playsinline muted crossorigin="anonymous">
-      <!-- الرابط للملف المحلي جنب index.html -->
+  <div class="frame" id="videoFrame">
+    <video id="video" playsinline webkit-playsinline crossorigin="anonymous">
       <source src="video.mp4" type="video/mp4">
     </video>
     <div class="wait-overlay" id="waitOverlay">
       <div class="wait-text"><span class="wait-pulse"></span>في انتظار فريق البابا كيرلس</div>
     </div>
+  </div>
+
+  <!-- أزرار التحكم في الفيديو -->
+  <div class="video-controls">
+    <button id="btnMute">🔊 كتم الصوت</button>
+    <button id="btnVolumeUp">🔊 رفع الصوت</button>
+    <button id="btnVolumeDown">🔉 خفض الصوت</button>
+    <button class="fullscreen" id="btnFullscreen">⛶ تكبير</button>
   </div>
 
   <div class="error-msg" id="errorMsg">⚠️ <span id="errorText"></span></div>
@@ -178,6 +213,7 @@
   const waitOverlay = document.getElementById("waitOverlay");
   const errorMsg = document.getElementById("errorMsg");
   const errorText = document.getElementById("errorText");
+  const videoFrame = document.getElementById("videoFrame");
 
   const DRIFT_TOLERANCE = 0.3;
 
@@ -187,6 +223,52 @@
     setTimeout(() => errorMsg.classList.remove("show"), 8000);
   }
 
+  // --- التحكم في الصوت والتكبير ---
+  
+  // كتم/إلغاء كتم الصوت
+  document.getElementById("btnMute").addEventListener("click", () => {
+    video.muted = !video.muted;
+    document.getElementById("btnMute").textContent = video.muted ? "🔇 كتم الصوت" : "🔊 كتم الصوت";
+  });
+
+  // رفع الصوت
+  document.getElementById("btnVolumeUp").addEventListener("click", () => {
+    if (video.volume < 1) {
+      video.volume = Math.min(1, video.volume + 0.1);
+      video.muted = false;
+      document.getElementById("btnMute").textContent = "🔊 كتم الصوت";
+    }
+  });
+
+  // خفض الصوت
+  document.getElementById("btnVolumeDown").addEventListener("click", () => {
+    if (video.volume > 0) {
+      video.volume = Math.max(0, video.volume - 0.1);
+    }
+  });
+
+  // تكبير (شاشة كاملة)
+  document.getElementById("btnFullscreen").addEventListener("click", () => {
+    if (!document.fullscreenElement) {
+      videoFrame.requestFullscreen().catch(err => {
+        showError("لا يمكن الدخول إلى وضع ملء الشاشة: " + err.message);
+      });
+    } else {
+      document.exitFullscreen();
+    }
+  });
+
+  // تغيير نص زر التكبير عند الدخول/الخروج من الشاشة الكاملة
+  document.addEventListener("fullscreenchange", () => {
+    const btn = document.getElementById("btnFullscreen");
+    if (document.fullscreenElement) {
+      btn.textContent = "⛶ تصغير";
+    } else {
+      btn.textContent = "⛶ تكبير";
+    }
+  });
+
+  // --- حالة الاتصال ---
   onValue(ref(db, ".info/connected"), (snap) => {
     const connected = snap.val() === true;
     dot.classList.toggle("live", connected);
