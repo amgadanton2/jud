@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ريموت التحكم في الفيديو</title>
+<style>
+  :root{
+    --bg:#0d1117;
+    --panel:#151b23;
+    --line:#232b36;
+    --text:#e6edf3;
+    --muted:#7d8590;
+    --live:#3fb950;
+    --off:#484f58;
+    --accent:#2f81f7;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0;
+    height:100%;
+    background:var(--bg);
+    color:var(--text);
+    font-family:-apple-system,"Segoe UI",Tahoma,Arial,sans-serif;
+  }
+  body{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    min-height:100vh;
+    padding:24px;
+  }
+  .panel{
+    width:100%;
+    max-width:440px;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:14px;
+    padding:28px;
+  }
+  h1{
+    font-size:19px;
+    margin:0 0 4px;
+  }
+  .sub{
+    color:var(--muted);
+    font-size:13px;
+    margin-bottom:22px;
+  }
+  .status-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    background:var(--bg);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:12px 14px;
+    margin-bottom:18px;
+    font-size:13px;
+  }
+  .status-item{display:flex;align-items:center;gap:8px;color:var(--muted);}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--off);transition:background .3s;}
+  .dot.live{background:var(--live);box-shadow:0 0 0 3px rgba(63,185,80,.18);}
+  .dot.playing{background:var(--accent);box-shadow:0 0 0 3px rgba(47,129,247,.18);}
+
+  .clock{
+    text-align:center;
+    font-variant-numeric:tabular-nums;
+    font-size:34px;
+    font-weight:600;
+    letter-spacing:1px;
+    padding:14px 0 18px;
+  }
+
+  .controls{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:10px;
+    margin-bottom:18px;
+  }
+  button{
+    font-family:inherit;
+    font-size:15px;
+    padding:14px 10px;
+    border-radius:10px;
+    border:1px solid var(--line);
+    background:#1c2230;
+    color:var(--text);
+    cursor:pointer;
+    transition:background .15s ease, transform .1s ease;
+  }
+  button:hover{background:#242c3d;}
+  button:active{transform:scale(.97);}
+  button.primary{
+    background:var(--accent);
+    border-color:var(--accent);
+    grid-column:1 / -1;
+  }
+  button.primary:hover{background:#4a90fa;}
+  button.stop{color:#f85149;}
+
+  .seek-row{
+    display:flex;
+    gap:8px;
+  }
+  .seek-row input{
+    flex:1;
+    font-family:inherit;
+    font-size:15px;
+    text-align:center;
+    background:var(--bg);
+    border:1px solid var(--line);
+    border-radius:10px;
+    color:var(--text);
+    padding:0 10px;
+  }
+  .seek-row button{
+    width:90px;
+  }
+  .seek-hint{
+    font-size:11px;
+    color:var(--muted);
+    margin-top:8px;
+    text-align:center;
+  }
+</style>
+</head>
+<body>
+
+<div class="panel">
+  <h1>ريموت التحكم</h1>
+  <div class="sub">أي زرار تدوسه هنا بيتنفذ فورًا في موقع العرض</div>
+
+  <div class="status-row">
+    <div class="status-item"><span class="dot" id="connDot"></span><span id="connText">بيتصل...</span></div>
+    <div class="status-item"><span class="dot" id="playDot"></span><span id="playText">--</span></div>
+  </div>
+
+  <div class="clock" id="clock">00:00</div>
+
+  <div class="controls">
+    <button class="primary" id="btnPlay">▶ تشغيل</button>
+    <button id="btnPause">⏸ إيقاف مؤقت</button>
+    <button id="btnRestart">⟲ إعادة من البداية</button>
+    <button class="stop" id="btnStop">⏹ إيقاف كامل</button>
+  </div>
+
+  <div class="seek-row">
+    <input type="text" id="seekInput" placeholder="mm:ss  مثال: 1:24" inputmode="numeric">
+    <button id="btnSeek">روح للحظة دي</button>
+  </div>
+  <div class="seek-hint">التحكم دقيق للثانية — الشاشة بتتظبط تلقائيًا كل ثانية وهي شغالة</div>
+</div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getDatabase, ref, set, onValue, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyCvq57e4E09X4jttg7jAG4iBAFqPUv4wOY",
+    authDomain: "judas-b2914.firebaseapp.com",
+    databaseURL: "https://judas-b2914-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "judas-b2914",
+    storageBucket: "judas-b2914.firebasestorage.app",
+    messagingSenderId: "811595442651",
+    appId: "1:811595442651:web:e647211c2db0eff3d01ffe",
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+  const controlRef = ref(db, "control");
+  const syncRef = ref(db, "sync");
+
+  const connDot = document.getElementById("connDot");
+  const connText = document.getElementById("connText");
+  const playDot = document.getElementById("playDot");
+  const playText = document.getElementById("playText");
+  const clockEl = document.getElementById("clock");
+  const seekInput = document.getElementById("seekInput");
+
+  onValue(ref(db, ".info/connected"), (snap) => {
+    const connected = snap.val() === true;
+    connDot.classList.toggle("live", connected);
+    connText.textContent = connected ? "متصل" : "مفصول";
+  });
+
+  onValue(ref(db, "player/presence"), (snap) => {
+    const p = snap.val();
+    if (!p || !p.online) {
+      playText.textContent = "الشاشة مقفولة";
+      playDot.classList.remove("playing");
+    }
+  });
+
+  // ---- الساعة المرجعية: الريموت هو مصدر الحقيقة للوقت ----
+  let position = 0;        // آخر موضع معروف بالثانية
+  let isPlaying = false;
+  let anchorMs = null;      // Date.now() وقت آخر تشغيل
+
+  function currentPosition() {
+    if (isPlaying && anchorMs !== null) {
+      return position + (Date.now() - anchorMs) / 1000;
+    }
+    return position;
+  }
+
+  function formatTime(t) {
+    t = Math.max(0, Math.floor(t));
+    const m = Math.floor(t / 60);
+    const s = t % 60;
+    return `${m}:${String(s).padStart(2, "0")}`;
+  }
+
+  function parseTime(str) {
+    const parts = str.trim().split(":");
+    if (parts.length === 1) return Number(parts[0]) || 0;
+    if (parts.length === 2) return (Number(parts[0]) || 0) * 60 + (Number(parts[1]) || 0);
+    return 0;
+  }
+
+  function sendCommand(action, extra = {}) {
+    set(controlRef, { action, ts: serverTimestamp(), ...extra });
+  }
+
+  function pushHeartbeat() {
+    set(syncRef, { time: currentPosition(), playing: isPlaying, ts: serverTimestamp() });
+  }
+
+  let heartbeatTimer = null;
+  function startHeartbeat() {
+    stopHeartbeat();
+    heartbeatTimer = setInterval(pushHeartbeat, 1000);
+  }
+  function stopHeartbeat() {
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+
+  // تحديث الساعة على الشاشة كل 250ms (محلي بس، مش بيبعت للسيرفر)
+  setInterval(() => {
+    clockEl.textContent = formatTime(currentPosition());
+    playDot.classList.toggle("playing", isPlaying);
+    playText.textContent = isPlaying ? "بيشتغل الآن" : "متوقف";
+  }, 250);
+
+  document.getElementById("btnPlay").onclick = () => {
+    isPlaying = true;
+    anchorMs = Date.now();
+    sendCommand("play");
+    pushHeartbeat();
+    startHeartbeat();
+  };
+
+  document.getElementById("btnPause").onclick = () => {
+    position = currentPosition();
+    isPlaying = false;
+    anchorMs = null;
+    sendCommand("pause");
+    pushHeartbeat();
+    stopHeartbeat();
+  };
+
+  document.getElementById("btnRestart").onclick = () => {
+    position = 0;
+    isPlaying = true;
+    anchorMs = Date.now();
+    sendCommand("restart");
+    pushHeartbeat();
+    startHeartbeat();
+  };
+
+  document.getElementById("btnStop").onclick = () => {
+    position = 0;
+    isPlaying = false;
+    anchorMs = null;
+    sendCommand("stop");
+    stopHeartbeat();
+    set(syncRef, null);
+  };
+
+  document.getElementById("btnSeek").onclick = () => {
+    const t = parseTime(seekInput.value);
+    position = t;
+    anchorMs = isPlaying ? Date.now() : null;
+    sendCommand("seek", { time: t });
+    pushHeartbeat();
+  };
+</script>
+
+</body>
+</html>
