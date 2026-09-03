@@ -2,7 +2,7 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>مشغل الفيديو</title>
 <style>
   :root{
@@ -13,14 +13,22 @@
     --muted:#7d8590;
     --live:#3fb950;
     --off:#484f58;
+    --accent:#2f81f7;
   }
-  *{box-sizing:border-box;}
+  *{
+    box-sizing:border-box;
+    margin:0;
+    padding:0;
+  }
   html,body{
     margin:0;
+    padding:0;
     height:100%;
+    width:100%;
     background:var(--bg);
     color:var(--text);
     font-family:-apple-system,"Segoe UI",Tahoma,Arial,sans-serif;
+    overflow:hidden;
   }
   body{
     display:flex;
@@ -28,19 +36,24 @@
     align-items:center;
     justify-content:center;
     min-height:100vh;
-    padding:24px;
+    padding:10px;
   }
   .stage{
     width:100%;
     max-width:960px;
+    height:100%;
+    max-height:90vh;
+    display:flex;
+    flex-direction:column;
   }
   .status-bar{
     display:flex;
     align-items:center;
     gap:10px;
-    margin-bottom:14px;
-    font-size:14px;
+    margin-bottom:10px;
+    font-size:13px;
     color:var(--muted);
+    flex-shrink:0;
   }
   .dot{
     width:9px;
@@ -48,6 +61,7 @@
     border-radius:50%;
     background:var(--off);
     transition:background .3s ease;
+    flex-shrink:0;
   }
   .dot.live{
     background:var(--live);
@@ -56,6 +70,8 @@
   .frame{
     position:relative;
     width:100%;
+    flex:1;
+    min-height:0;
     border-radius:10px;
     overflow:hidden;
     background:#000;
@@ -63,9 +79,14 @@
   }
   video{
     width:100%;
+    height:100%;
     display:block;
     background:#000;
-    min-height:300px;
+    object-fit:contain; /* الافتراضي: الفيديو يظهر كامل */
+  }
+  /* وضعية Fill: الفيديو يملأ الإطار */
+  video.fill{
+    object-fit:cover;
   }
   .wait-overlay{
     position:absolute;
@@ -81,7 +102,7 @@
     pointer-events:none;
   }
   .wait-text{
-    font-size:clamp(22px, 4vw, 40px);
+    font-size:clamp(18px, 4vw, 40px);
     font-weight:600;
     color:#e6edf3;
     text-align:center;
@@ -103,30 +124,88 @@
     50%{opacity:1; transform:scale(1.15);}
   }
   .hint{
-    margin-top:12px;
-    font-size:13px;
+    margin-top:10px;
+    font-size:12px;
     color:var(--muted);
     line-height:1.7;
-  }
-  code{
-    background:var(--panel);
-    border:1px solid var(--line);
-    padding:1px 6px;
-    border-radius:4px;
-    font-size:12px;
+    flex-shrink:0;
+    text-align:center;
   }
   .error-msg{
     color:#f85149;
     font-size:13px;
-    margin-top:10px;
-    padding:10px;
+    margin-top:8px;
+    padding:8px 12px;
     background:rgba(248,81,73,0.1);
     border-radius:8px;
     border:1px solid rgba(248,81,73,0.2);
     display:none;
+    flex-shrink:0;
   }
   .error-msg.show{
     display:block;
+  }
+
+  /* أزرار التحكم في الفيديو */
+  .video-controls{
+    display:flex;
+    gap:10px;
+    margin-top:10px;
+    justify-content:center;
+    flex-shrink:0;
+    flex-wrap:wrap;
+  }
+  .video-controls button{
+    background:var(--panel);
+    border:1px solid var(--line);
+    color:var(--text);
+    padding:10px 20px;
+    border-radius:8px;
+    cursor:pointer;
+    font-size:14px;
+    transition:background .2s;
+    flex:1;
+    min-width:80px;
+    max-width:150px;
+  }
+  .video-controls button:hover{
+    background:var(--line);
+  }
+  .video-controls button.fullscreen{
+    background:var(--accent);
+    border-color:var(--accent);
+  }
+  .video-controls button.fullscreen:hover{
+    background:#4a90fa;
+  }
+  .video-controls button.fit{
+    background:#238636;
+    border-color:#238636;
+  }
+  .video-controls button.fit:hover{
+    background:#2ea043;
+  }
+  .video-controls button.fit.active{
+    background:#1f6feb;
+    border-color:#1f6feb;
+  }
+
+  /* للشاشات الصغيرة (موبايل) */
+  @media (max-width: 600px) {
+    body{
+      padding:8px;
+    }
+    .video-controls button{
+      padding:12px 16px;
+      font-size:13px;
+      min-width:60px;
+    }
+    .status-bar{
+      font-size:12px;
+    }
+    .hint{
+      font-size:11px;
+    }
   }
 </style>
 </head>
@@ -138,14 +217,19 @@
     <span id="connText">بيتصل بالسيرفر...</span>
   </div>
 
-  <div class="frame">
-    <video id="video" playsinline webkit-playsinline muted crossorigin="anonymous">
-      <!-- الرابط للملف المحلي جنب index.html -->
+  <div class="frame" id="videoFrame">
+    <video id="video" playsinline webkit-playsinline crossorigin="anonymous">
       <source src="video1.mp4" type="video/mp4">
     </video>
     <div class="wait-overlay" id="waitOverlay">
       <div class="wait-text"><span class="wait-pulse"></span>في انتظار فريق البابا كيرلس</div>
     </div>
+  </div>
+
+  <!-- أزرار التحكم في الفيديو -->
+  <div class="video-controls">
+    <button class="fit" id="btnFit">⬜ Fit</button>
+    <button class="fullscreen" id="btnFullscreen">⛶ تكبير</button>
   </div>
 
   <div class="error-msg" id="errorMsg">⚠️ <span id="errorText"></span></div>
@@ -178,8 +262,10 @@
   const waitOverlay = document.getElementById("waitOverlay");
   const errorMsg = document.getElementById("errorMsg");
   const errorText = document.getElementById("errorText");
+  const videoFrame = document.getElementById("videoFrame");
 
   const DRIFT_TOLERANCE = 0.3;
+  let isFitMode = true; // Fit هو الوضع الافتراضي
 
   function showError(msg) {
     errorText.textContent = msg;
@@ -187,6 +273,42 @@
     setTimeout(() => errorMsg.classList.remove("show"), 8000);
   }
 
+  // --- زر Fit: تبديل بين وضعية Fit و Fill ---
+  document.getElementById("btnFit").addEventListener("click", () => {
+    isFitMode = !isFitMode;
+    const btn = document.getElementById("btnFit");
+    if (isFitMode) {
+      video.classList.remove("fill");
+      btn.textContent = "⬜ Fit";
+      btn.classList.remove("active");
+    } else {
+      video.classList.add("fill");
+      btn.textContent = "⬜ Fill";
+      btn.classList.add("active");
+    }
+  });
+
+  // --- زر التكبير (شاشة كاملة) ---
+  document.getElementById("btnFullscreen").addEventListener("click", () => {
+    if (!document.fullscreenElement) {
+      videoFrame.requestFullscreen().catch(err => {
+        showError("لا يمكن الدخول إلى وضع ملء الشاشة: " + err.message);
+      });
+    } else {
+      document.exitFullscreen();
+    }
+  });
+
+  document.addEventListener("fullscreenchange", () => {
+    const btn = document.getElementById("btnFullscreen");
+    if (document.fullscreenElement) {
+      btn.textContent = "⛶ تصغير";
+    } else {
+      btn.textContent = "⛶ تكبير";
+    }
+  });
+
+  // --- حالة الاتصال ---
   onValue(ref(db, ".info/connected"), (snap) => {
     const connected = snap.val() === true;
     dot.classList.toggle("live", connected);
