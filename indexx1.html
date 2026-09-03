@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>مشغل الفيديو</title>
+<style>
+  :root{
+    --bg:#0d1117;
+    --panel:#151b23;
+    --line:#232b36;
+    --text:#e6edf3;
+    --muted:#7d8590;
+    --live:#3fb950;
+    --off:#484f58;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0;
+    height:100%;
+    background:var(--bg);
+    color:var(--text);
+    font-family:-apple-system,"Segoe UI",Tahoma,Arial,sans-serif;
+  }
+  body{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    min-height:100vh;
+    padding:24px;
+  }
+  .stage{
+    width:100%;
+    max-width:960px;
+  }
+  .status-bar{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-bottom:14px;
+    font-size:14px;
+    color:var(--muted);
+  }
+  .dot{
+    width:9px;
+    height:9px;
+    border-radius:50%;
+    background:var(--off);
+    transition:background .3s ease;
+  }
+  .dot.live{
+    background:var(--live);
+    box-shadow:0 0 0 3px rgba(63,185,80,.18);
+  }
+  .frame{
+    position:relative;
+    width:100%;
+    border-radius:10px;
+    overflow:hidden;
+    background:#000;
+    border:1px solid var(--line);
+  }
+  video{
+    width:100%;
+    display:block;
+    background:#000;
+    min-height:300px;
+  }
+  .wait-overlay{
+    position:absolute;
+    inset:0;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background:radial-gradient(circle at center, #1a2233 0%, #05070a 100%);
+    transition:opacity .5s ease;
+  }
+  .wait-overlay.hidden{
+    opacity:0;
+    pointer-events:none;
+  }
+  .wait-text{
+    font-size:clamp(22px, 4vw, 40px);
+    font-weight:600;
+    color:#e6edf3;
+    text-align:center;
+    letter-spacing:.5px;
+    padding:0 20px;
+  }
+  .wait-pulse{
+    width:10px;
+    height:10px;
+    border-radius:50%;
+    background:#3fb950;
+    display:inline-block;
+    margin-inline-end:12px;
+    animation:pulse 1.6s ease-in-out infinite;
+    vertical-align:middle;
+  }
+  @keyframes pulse{
+    0%,100%{opacity:.35; transform:scale(.85);}
+    50%{opacity:1; transform:scale(1.15);}
+  }
+  .hint{
+    margin-top:12px;
+    font-size:13px;
+    color:var(--muted);
+    line-height:1.7;
+  }
+  code{
+    background:var(--panel);
+    border:1px solid var(--line);
+    padding:1px 6px;
+    border-radius:4px;
+    font-size:12px;
+  }
+  .error-msg{
+    color:#f85149;
+    font-size:13px;
+    margin-top:10px;
+    padding:10px;
+    background:rgba(248,81,73,0.1);
+    border-radius:8px;
+    border:1px solid rgba(248,81,73,0.2);
+    display:none;
+  }
+  .error-msg.show{
+    display:block;
+  }
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <div class="status-bar">
+    <span class="dot" id="connDot"></span>
+    <span id="connText">بيتصل بالسيرفر...</span>
+  </div>
+
+  <div class="frame">
+    <video id="video" playsinline webkit-playsinline muted crossorigin="anonymous">
+      <!-- الرابط للملف المحلي جنب index.html -->
+      <source src="video.mp4" type="video/mp4">
+    </video>
+    <div class="wait-overlay" id="waitOverlay">
+      <div class="wait-text"><span class="wait-pulse"></span>في انتظار فريق البابا كيرلس</div>
+    </div>
+  </div>
+
+  <div class="error-msg" id="errorMsg">⚠️ <span id="errorText"></span></div>
+
+  <div class="hint">
+    الفيديو بيتم تشغيله الآن ومربوط بنظام التزامن عبر Firebase.
+  </div>
+</div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getDatabase, ref, onValue, onDisconnect, set, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyCvq57e4E09X4jttg7jAG4iBAFqPUv4wOY",
+    authDomain: "judas-b2914.firebaseapp.com",
+    databaseURL: "https://judas-b2914-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "judas-b2914",
+    storageBucket: "judas-b2914.firebasestorage.app",
+    messagingSenderId: "811595442651",
+    appId: "1:811595442651:web:e647211c2db0eff3d01ffe",
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+
+  const video = document.getElementById("video");
+  const dot = document.getElementById("connDot");
+  const connText = document.getElementById("connText");
+  const waitOverlay = document.getElementById("waitOverlay");
+  const errorMsg = document.getElementById("errorMsg");
+  const errorText = document.getElementById("errorText");
+
+  const DRIFT_TOLERANCE = 0.3;
+
+  function showError(msg) {
+    errorText.textContent = msg;
+    errorMsg.classList.add("show");
+    setTimeout(() => errorMsg.classList.remove("show"), 8000);
+  }
+
+  onValue(ref(db, ".info/connected"), (snap) => {
+    const connected = snap.val() === true;
+    dot.classList.toggle("live", connected);
+    connText.textContent = connected ? "متصل ومباشر (live)" : "مفيش اتصال بالسيرفر";
+    console.log("🔥 الاتصال:", connected ? "متصل ✅" : "مفصول ❌");
+    if (!connected) showError("لا يوجد اتصال بالسيرفر، تأكد من اتصال الإنترنت");
+  });
+
+  const presenceRef = ref(db, "player/presence");
+  set(presenceRef, { online: true, since: serverTimestamp() });
+  onDisconnect(presenceRef).set({ online: false, since: serverTimestamp() });
+
+  function showWaiting(show) {
+    waitOverlay.classList.toggle("hidden", !show);
+  }
+
+  let lastCmdTs = null;
+
+  onValue(ref(db, "control"), (snap) => {
+    const data = snap.val();
+    console.log("📡 أمر واصل:", data);
+    if (!data || data.ts === lastCmdTs) return;
+    lastCmdTs = data.ts;
+
+    switch (data.action) {
+      case "play":
+        console.log("▶ تشغيل");
+        showWaiting(false);
+        video.play().catch((err) => {
+          console.error("❌ خطأ في التشغيل:", err);
+          showError("خطأ في تشغيل الفيديو: " + err.message);
+        });
+        break;
+      case "pause":
+        console.log("⏸ إيقاف مؤقت");
+        video.pause();
+        break;
+      case "restart":
+        console.log("⟲ إعادة تشغيل");
+        showWaiting(false);
+        video.currentTime = 0;
+        video.play().catch((err) => {
+          console.error("❌ خطأ في إعادة التشغيل:", err);
+          showError("خطأ في إعادة التشغيل: " + err.message);
+        });
+        break;
+      case "seek":
+        console.log("⏩ ذهاب إلى:", data.time);
+        if (typeof data.time === "number") {
+          video.currentTime = data.time;
+        }
+        break;
+      case "stop":
+        console.log("⏹ إيقاف كامل");
+        video.pause();
+        video.currentTime = 0;
+        showWaiting(true);
+        break;
+    }
+  });
+
+  onValue(ref(db, "sync"), (snap) => {
+    const s = snap.val();
+    if (!s || typeof s.time !== "number") return;
+
+    const drift = Math.abs(video.currentTime - s.time);
+    if (drift > DRIFT_TOLERANCE) {
+      video.currentTime = s.time;
+    }
+    if (s.playing && video.paused) {
+      showWaiting(false);
+      video.play().catch((err) => {
+        console.error("❌ خطأ في المزامنة:", err);
+      });
+    }
+    if (!s.playing && !video.paused) {
+      video.pause();
+    }
+  });
+
+  const playerStateRef = ref(db, "player/state");
+  function reportState(playing) {
+    set(playerStateRef, { 
+      playing, 
+      currentTime: video.currentTime, 
+      updatedAt: serverTimestamp() 
+    });
+  }
+
+  video.addEventListener("play", () => {
+    reportState(true);
+    console.log("▶ الفيديو بدأ");
+  });
+  
+  video.addEventListener("pause", () => {
+    reportState(false);
+    console.log("⏸ الفيديو توقف");
+  });
+
+  video.addEventListener("error", (e) => {
+    console.error("❌ خطأ في الفيديو:", e);
+    showError("خطأ في تحميل الفيديو. تأكد من وجود ملف video.mp4 في نفس المجلد");
+  });
+
+  video.addEventListener("loadedmetadata", () => {
+    console.log("✅ تم تحميل بيانات الفيديو، المدة:", video.duration, "ثانية");
+  });
+
+  setInterval(() => { 
+    if (!video.paused) reportState(true); 
+  }, 1000);
+
+  console.log("🚀 مشغل الفيديو جاهز!");
+</script>
+
+</body>
+</html>
